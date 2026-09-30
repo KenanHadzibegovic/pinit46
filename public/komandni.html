@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="bs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" href="/icon-192.png">
+<title>PINIT Drive — stanje cestovne mreže</title>
+<script>
+/* U platformi se Drive otvara kao sekcija Ceste (?embed=1): bez vlastitog
+   menija i bez dugmeta za jezik — to već ima platforma. */
+window.EMBED = /[?&]embed=1/.test(location.search);
+</script>
+<script src="/jezik.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+if (typeof Chart === 'undefined') {
+  window.Chart = function () { return { update: function () {}, destroy: function () {} }; };
+  window.Chart.defaults = { font: {}, plugins: { legend: { labels: {} }, tooltip: {} }, scale: { grid: {}, ticks: {} } };
+  window.__chartMissing = true;
+}
+</script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="/maps.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Isti vizuelni jezik kao platforma (PRD 7.3). Skala stanja kolovoza
+   (zelena → žuta → narandžasta → crvena) je jedino mjesto gdje se boje
+   ređaju — i uvijek znače isto: koliko je dionica oštećena. */
+:root{--bg:#161a18;--panel:#1e2422;--panel2:#232a28;--line:#2b3330;--line2:#353e3b;--tx:#eaefec;--tx2:#b9c2be;--tx3:#8f9a96;--tx4:#66716d;
+  --green:#1c7a35;--green-t:#4cc26a;--green-s:rgba(28,122,53,.16);--red:#f0574b;--orange:#e8883c;--amber:#e0a93b;
+  --fn:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;--r:12px}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--fn);background:var(--bg);color:var(--tx);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;overflow:hidden;font-feature-settings:"tnum" 1}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none}
+select option{background:var(--panel)}
+:focus-visible{outline:2px solid var(--green-t);outline-offset:2px;border-radius:6px}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2f3835;border-radius:6px;border:2px solid var(--bg)}
+.app{display:grid;grid-template-columns:248px 1fr;height:100vh}
+body.embed .app{grid-template-columns:1fr}
+body.embed .side{display:none}
+.side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.brand{padding:22px 20px 6px;display:flex;align-items:baseline;gap:8px}
+.brand img{height:22px}
+.brand span{font-size:13px;color:var(--tx3);font-weight:500}
+.city{padding:0 20px 18px;font-size:12px;color:var(--tx4);letter-spacing:.06em;text-transform:uppercase}
+.nav{flex:1;overflow-y:auto}
+.nav button{display:flex;width:100%;text-align:left;padding:11px 20px 11px 22px;font-size:15px;color:var(--tx2);position:relative}
+.nav button:hover{background:rgba(255,255,255,.025);color:var(--tx)}
+.nav button.on{color:var(--tx);font-weight:600;background:rgba(255,255,255,.035)}
+.nav button.on::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;background:var(--green);border-radius:0 3px 3px 0}
+.nav .cnt{margin-left:auto;font-size:12.5px;color:var(--red);font-weight:600}
+.foot{border-top:1px solid var(--line);padding:14px 20px;font-size:12.5px;color:var(--tx3)}
+.foot a{color:var(--tx2)}
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{min-height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:12px 24px;flex-wrap:wrap}
+.top h1{font-size:19px;font-weight:600}
+body.embed .top h1{display:none}
+.tabs{display:none;gap:6px;flex-wrap:wrap}
+body.embed .tabs{display:flex}
+.sp{flex:1}
+.view{flex:1;overflow-y:auto;padding:22px 24px}
+.btn{display:inline-flex;align-items:center;gap:7px;border-radius:10px;padding:9px 15px;font-size:14px;font-weight:500;border:1px solid var(--line2);background:var(--panel);white-space:nowrap}
+.btn:hover{border-color:var(--tx4)}
+.btn.pri{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
+.btn.out{background:transparent;border-color:rgba(76,194,106,.55);color:var(--green-t)}
+.btn.sm{padding:6px 11px;font-size:13px;border-radius:9px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.pill{border:1px solid var(--line2);border-radius:10px;padding:7px 13px;font-size:13.5px;color:var(--tx2)}
+.pill:hover{color:var(--tx);border-color:var(--tx4)}
+.pill.on{border-color:rgba(76,194,106,.6);color:var(--green-t);background:var(--green-s);font-weight:500}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.card-h{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--line)}
+.card-h h3{font-size:15px;font-weight:600}
+.card-h .sub{font-size:12.5px;color:var(--tx3)}
+.card-h .sp{flex:1}
+.card-b{padding:16px 18px}
+.grid{display:grid;gap:16px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g21{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr)}
+@media (max-width:1180px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g21,.g3{grid-template-columns:1fr}}
+.stack{display:flex;flex-direction:column;gap:16px}
+.kpi{padding:15px 18px}
+.kpi span{display:block;font-size:11.5px;letter-spacing:.06em;color:var(--tx3);font-weight:500;text-transform:uppercase}
+.kpi b{display:block;font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-.01em}
+.kpi b span{text-transform:none;letter-spacing:0;font-size:inherit;display:inline;color:inherit;font-weight:inherit}
+.kpi em{display:block;font-style:normal;font-size:12px;color:var(--tx3);margin-top:3px}
+.note{border:1px solid var(--line2);border-radius:var(--r);padding:12px 16px;font-size:13.5px;color:var(--tx2);display:flex;gap:14px;align-items:baseline;background:var(--panel)}
+.note b{font-size:11.5px;letter-spacing:.06em;color:var(--tx3);font-weight:600;white-space:nowrap}
+.note.warn{border-color:rgba(224,169,59,.55);background:rgba(224,169,59,.07);color:#e7c77f}
+.note.warn b{color:var(--amber)}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:11.5px;font-weight:500;color:var(--tx3);text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:default}
+.tbl th[data-s]{cursor:pointer}
+.tbl th[data-s]:hover{color:var(--tx)}
+.tbl td{padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tbody tr{cursor:pointer}
+.tbl tbody tr:hover{background:var(--panel2)}
+.tbl .r{text-align:right}
+.tbl .mut{color:var(--tx3)}
+.tblwrap{overflow-x:auto}
+.q{font-weight:600}
+.qbar{height:4px;border-radius:2px;background:#2a3230;overflow:hidden;margin-top:6px;width:90px}
+.qbar i{display:block;height:100%;border-radius:2px}
+.dn{border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--panel);width:100%;text-align:left}
+.dn:hover{border-color:var(--line2)}
+.dn .r{display:flex;align-items:baseline;gap:12px}
+.dn .r b{flex:1;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dn .qv{font-size:15px;font-weight:600}
+.dn .i{font-size:13px;color:var(--tx3);width:36px;text-align:right}
+.dn .bb{height:4px;border-radius:2px;background:#2a3230;margin-top:9px;overflow:hidden}
+.dn .bb i{display:block;height:100%;border-radius:2px}
+.dh{display:flex;font-size:11.5px;color:var(--tx3);letter-spacing:.05em;padding:0 16px 6px}
+.dh span:first-child{flex:1}
+.mapwrap{position:relative;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);background:#0f1211;min-height:440px}
+.mapwrap .ml{position:absolute;inset:0}
+.mapfail{position:absolute;inset:0;display:grid;place-items:center;color:var(--tx3);font-size:13.5px;text-align:center;padding:30px}
+.legend{position:absolute;left:14px;bottom:14px;background:rgba(22,26,24,.92);border:1px solid var(--line2);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--tx2);display:flex;gap:12px;flex-wrap:wrap;align-items:center;z-index:2}
+.legend b{font-size:11px;color:var(--tx3);letter-spacing:.06em;font-weight:600}
+.legend i{display:inline-block;width:16px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.maplibregl-popup-content{background:var(--panel)!important;color:var(--tx)!important;border:1px solid var(--line2);border-radius:10px!important;font-family:var(--fn);font-size:13px;padding:10px 12px!important}
+.maplibregl-popup-tip{border-top-color:var(--line2)!important;border-bottom-color:var(--line2)!important}
+.maplibregl-ctrl-attrib{background:rgba(22,26,24,.75)!important;color:var(--tx4)!important}
+.maplibregl-ctrl-attrib a{color:var(--tx3)!important}
+.maplibregl-ctrl-group{background:var(--panel)!important;border:1px solid var(--line2)}
+.maplibregl-ctrl-group button span{filter:invert(.85)}
+.bands{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0 12px}
+.bands i{display:block;height:100%}
+.bl{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--tx2)}
+.bl span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.chartbox{position:relative;height:250px}
+.chartbox.sm{height:190px}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);background:var(--panel);border-left:1px solid var(--line2);box-shadow:-24px 0 60px rgba(0,0,0,.45);transform:translateX(104%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.dr-h{padding:18px 20px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px}
+.dr-h .t{flex:1;min-width:0}
+.dr-h h2{font-size:18px;font-weight:600}
+.dr-h p{font-size:13px;color:var(--tx3);margin-top:3px}
+.x{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--tx3)}
+.x:hover{background:var(--panel2);color:var(--tx)}
+.dr-b{flex:1;overflow-y:auto;padding:18px 20px}
+.dr-f{border-top:1px solid var(--line);padding:12px 20px;display:flex;gap:8px;flex-wrap:wrap}
+.sec{margin-bottom:22px}
+.sec h4{font-size:12px;font-weight:500;color:var(--tx3);margin-bottom:9px}
+.fld{margin-bottom:14px}
+.fld label{display:block;font-size:12.5px;color:var(--tx3);margin-bottom:6px}
+.fld input{width:100%;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
+.fld .hint{font-size:12px;color:var(--tx3);margin-top:6px;line-height:1.5}
+.frow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.empty{padding:34px 20px;text-align:center;color:var(--tx3);font-size:14px;line-height:1.6}
+.empty b{display:block;color:var(--tx);font-weight:600;margin-bottom:4px;font-size:15px}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:7px;border:1px solid var(--line2);color:var(--tx2);white-space:nowrap}
+.chip.red{border-color:rgba(240,87,75,.5);color:var(--red)}
+.chip.green{border-color:rgba(76,194,106,.5);color:var(--green-t)}
+.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,140px);background:#2a3230;border:1px solid var(--line2);padding:12px 18px;border-radius:12px;font-size:14px;z-index:130;transition:transform .25s;max-width:90vw}
+.toast.on{transform:translate(-50%,0)}
+.toast.err{border-color:rgba(240,87,75,.6)}
+input.inp,select.inp{background:var(--bg);color:var(--tx);border:1px solid var(--line2);border-radius:10px;padding:8px 11px;font-size:14px;outline:none}
+</style>
+</head>
+<body data-bez-dugmeta-jezika>
+<script>if (window.EMBED) document.body.classList.add('embed');</script>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><img src="/logo-dark.png" alt="PINIT"><span>Drive</span></div>
+    <div class="city" id="city"></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="foot">Mjerenje telefonom u vozilu.<br><a href="/platforma">Nazad na platformu</a>
+      <div style="margin-top:10px"><button class="btn sm" id="langBtn" onclick="try{localStorage.setItem('pinit_lang',(window.pinitJezik&&pinitJezik()==='en')?'bs':'en')}catch(e){};location.reload()">EN</button></div></div>
+  </aside>
+  <div class="main">
+    <header class="top"><h1 id="title">Stanje mreže</h1><div class="tabs" id="tabs"></div><span class="sp"></span><div id="topact" style="display:flex;gap:8px"></div></header>
+    <section class="view" id="view"></section>
+  </div>
+</div>
+<aside class="drawer" id="drawer"></aside>
+<div class="toast" id="toast"></div>
+<input type="file" id="file" accept=".geojson,.json,.csv" multiple hidden>
+
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════════
+   PINIT DRIVE — komandni centar za cestovnu mrežu (PRD 13.4)
+
+   Iz vožnji (telefon u vozilu mjeri vibracije) sistem gradi DIONICE od
+   oko 100 m. Svaka vožnja preko iste dionice je još jedno mjerenje — tako
+   se vidi propadanje kroz vrijeme. Nema izmišljenih podataka: bez vožnji
+   ekran objašnjava odakle podaci dolaze.
+   ════════════════════════════════════════════════════════════════════ */
+function esc(v){ if (v == null) return ''; return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+const $ = id => document.getElementById(id);
+const DAY = 864e5;
+const S = { D: [], P: null, view: 'mreza', dion: [], hot: [], sort: { k: 'q', d: 1 }, q: '', sel: null, drive: null };
+let MAP = null, mapMarkers = [];
+
+async function api(path, opt){
+  opt = opt || {};
+  let r; try { r = await fetch(path, { method: opt.method || 'GET', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: opt.body ? JSON.stringify(opt.body) : undefined }); }
+  catch (e) { throw new Error('Nema veze sa serverom.'); }
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { (window.EMBED ? window.top : window).location.href = '/platforma'; throw new Error('Sesija je istekla.'); }
+  if (!r.ok) throw new Error((j && j.error) || (r.status === 404 ? 'Server ne poznaje ' + path + ' — server je vjerovatno starija verzija.' : 'Server je odgovorio greškom ' + r.status + ' na ' + path + '.'));
+  return j;
+}
+let tT; function toast(m, k){ const t = $('toast'); t.textContent = m; t.className = 'toast on' + (k ? ' ' + k : ''); clearTimeout(tT); tT = setTimeout(() => t.className = 'toast', 3200); }
+function dateS(t){ const d = new Date(t); return d.getDate() + '. ' + (d.getMonth() + 1) + '. ' + d.getFullYear() + '.'; }
+function kada(t){ if (!t) return '—'; const d = Math.floor((Date.now() - t) / DAY); return d <= 0 ? 'danas' : d === 1 ? 'jučer' : 'prije ' + d + ' dana'; }
+const fmt = (x, n) => x == null ? '—' : Number(x).toLocaleString('hr-HR', { maximumFractionDigits: n || 0 });
+
+/* ── Skala glatkoće (0–100) i procjena IRI (m/km), ista kao u aplikaciji ── */
+const iriOf = q => +((100 - q) * 0.12).toFixed(1);
+const qOfIri = iri => Math.max(0, Math.round(100 - iri / 0.12));
+function DP(){ return (S.P && S.P.drive) || { prag: 50, sirinaM: 7, krpljenje: 12, presvlacenje: 38, rekonstrukcija: 95, budzet: 150000 }; }
+function band(q){ const p = DP().prag;
+  return q < p ? { k: 'ispod', n: 'ispod praga', c: '#f0574b' } : q < 60 ? { k: 'slaba', n: 'slaba', c: '#e8883c' } : q < 75 ? { k: 'osrednja', n: 'osrednja', c: '#e0a93b' } : { k: 'dobra', n: 'dobra', c: '#4cc26a' }; }
+
+/* ════════════════════════════════════════════════════════════════════
+   DIONICE: mreža polja od ~100 m. Vrijednost dionice u jednom prolazu je
+   prosjek segmenata te vožnje u polju. Mjerenja ispod 20 km/h se ne
+   računaju (telefon tada ne mjeri pouzdano).
+   ════════════════════════════════════════════════════════════════════ */
+const CELL_LAT = 0.0009, CELL_LNG = 0.00125;
+function usable(s){ return s && typeof s.lat === 'number' && typeof s.lng === 'number' && !s.slow && !(typeof s.v === 'number' && s.v < 20) && (typeof s.q === 'number' || typeof s.iri === 'number'); }
+function qOf(s){ return typeof s.q === 'number' ? s.q : qOfIri(s.iri); }
+function build(){
+  const C = {};
+  S.D.forEach(d => {
+    const segs = ((d.drive && d.drive.segments) || []).filter(usable);
+    const per = {};
+    segs.forEach(s => { const k = Math.floor(s.lat / CELL_LAT) + ':' + Math.floor(s.lng / CELL_LNG); (per[k] = per[k] || []).push(s); });
+    Object.keys(per).forEach(k => { const L = per[k]; const c = C[k] = C[k] || { k, lat: 0, lng: 0, n: 0, passes: [] };
+      L.forEach(s => { c.lat += s.lat; c.lng += s.lng; c.n++; });
+      c.passes.push({ ts: d.ts, id: d.id, veh: vehOf(d), q: L.reduce((a, s) => a + qOf(s), 0) / L.length, m: L.length });
+      /* Ako mjerenje nosi naziv ulice (npr. iz navigacije vozila), koristi se. */
+      L.forEach(s => { if (s.ul) { c.ul = c.ul || {}; c.ul[s.ul] = (c.ul[s.ul] || 0) + 1; } }); });
+  });
+  S.dion = Object.values(C).map(c => {
+    c.lat /= c.n; c.lng /= c.n; c.passes.sort((a, b) => a.ts - b.ts);
+    const last = c.passes[c.passes.length - 1];
+    c.q = Math.round(last.q); c.iri = iriOf(c.q); c.lastTs = last.ts; c.np = c.passes.length;
+    /* Pouzdanost po broju prolaza: jedan prolaz je jedna vožnja, jedan telefon. */
+    c.rel = c.np >= 4 ? 'visoka' : c.np >= 2 ? 'srednja' : 'niska';
+    /* Propadanje: nagib prave kroz prolaze (glatkoća po mjesecu). Traži bar
+       dva prolaza razmaknuta 14 dana — inače je to šum, ne trend. */
+    const span = (last.ts - c.passes[0].ts) / DAY;
+    if (c.np >= 2 && span >= 14) {
+      const xs = c.passes.map(p => (p.ts - c.passes[0].ts) / DAY), ys = c.passes.map(p => p.q);
+      const mx = xs.reduce((a, x) => a + x, 0) / xs.length, my = ys.reduce((a, y) => a + y, 0) / ys.length;
+      const num = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0), den = xs.reduce((a, x) => a + (x - mx) * (x - mx), 0);
+      c.slope = den ? num / den * 30 : 0; c.span = span;
+    } else c.slope = null;
+    if (c.ul && !IMENA[key(c)]) IMENA[key(c)] = Object.keys(c.ul).sort((a, b) => c.ul[b] - c.ul[a])[0];
+    c.name = IMENA[key(c)] || ('Dionica kod ' + c.lat.toFixed(4) + ', ' + c.lng.toFixed(4));
+    return c;
+  });
+  numberStreets();
+  /* Udari: grupe unutar ~30 m. Potvrđeno kad ih je zabilježilo više vožnji. */
+  const H = [];
+  S.D.forEach(d => ((d.drive && d.drive.bumps) || []).forEach(b => {
+    if (typeof b.lat !== 'number') return;
+    let h = H.find(x => Math.abs(x.lat - b.lat) < 0.00027 && Math.abs(x.lng - b.lng) < 0.00037);
+    if (!h) { h = { lat: b.lat, lng: b.lng, B: [], drives: new Set() }; H.push(h); }
+    h.B.push(b); h.drives.add(d.id); h.lastTs = Math.max(h.lastTs || 0, d.ts);
+  }));
+  S.hot = H.map(h => { const cls = {}; h.B.forEach(b => { const c = klasa(b.cls); cls[c] = (cls[c] || 0) + 1; });
+    const top = Object.keys(cls).sort((a, b) => cls[b] - cls[a])[0];
+    return { lat: h.lat, lng: h.lng, n: h.B.length, nd: h.drives.size, cls: top, clsN: cls, peak: Math.max(...h.B.map(b => b.peak || 0)), lastTs: h.lastTs }; })
+    .sort((a, b) => (b.cls === 'rupa') - (a.cls === 'rupa') || b.nd - a.nd || b.n - a.n);
+}
+/* Rupa ili prepreka (PRD 13.4): kod rupe točak prvo propadne pa skoči,
+   kod ležećeg policajca se prvo podigne. Klasu određuje aplikacija. */
+function klasa(c){ c = String(c || '').toLowerCase(); if (c === 'prag' || c === 'lezeci' || c === 'prepreka') return 'prepreka'; if (c === 'sahta' || c === 'šahta') return 'sahta'; if (c === 'rupa') return 'rupa'; return 'neodređeno'; }
+const KLASA_N = { rupa: 'Rupa', prepreka: 'Prepreka (ležeći policajac)', sahta: 'Poklopac šahta', 'neodređeno': 'Neodređeno' };
+function vehOf(d){ return String(d.name || '').split(' · ')[0] || 'Vozilo'; }
+const key = c => c.lat.toFixed(4) + ',' + c.lng.toFixed(4);
+/* Ulica umjesto koordinata: MapTiler, zapamćeno u pregledniku. Više
+   dionica iste ulice dobija redni broj („Zmaja od Bosne, dionica 3"). */
+const IMENA = (function(){ try { return JSON.parse(localStorage.getItem('pinit_dionice')) || {}; } catch (e) { return {}; } })();
+function numberStreets(){
+  const by = {};
+  S.dion.forEach(c => { const n = IMENA[key(c)]; if (n) (by[n] = by[n] || []).push(c); });
+  Object.keys(by).forEach(n => { const L = by[n]; if (L.length === 1) { L[0].name = n; return; }
+    L.sort((a, b) => a.lng - b.lng || a.lat - b.lat).forEach((c, i) => c.name = n + ', dionica ' + (i + 1)); });
+}
+let geoBusy = false;
+function nameQueue(list){
+  if (geoBusy || !window.PINIT_MAPS || !PINIT_MAPS.reverse) return;
+  const todo = list.filter(c => !IMENA[key(c)]).slice(0, 12); if (!todo.length) return;
+  geoBusy = true;
+  Promise.all(todo.map(c => PINIT_MAPS.reverse(c.lat, c.lng).then(a => { if (a) IMENA[key(c)] = String(a).replace(/\s+\d+[a-zA-Z]?$/, ''); })))
+    .then(() => { geoBusy = false; try { localStorage.setItem('pinit_dionice', JSON.stringify(IMENA)); } catch (e) {}
+      if (todo.some(c => IMENA[key(c)])) { build(); render(true); } });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   NAVIGACIJA
+   ════════════════════════════════════════════════════════════════════ */
+const VIEWS = [['mreza','Stanje mreže'],['dionice','Dionice'],['propadanje','Propadanje'],['udari','Udari'],['plan','Plan sanacije'],['voznje','Vožnje'],['izvjestaj','Mjesečni izvještaj'],['postavke','Postavke']];
+const R = {};
+function go(v){
+  if (!R[v]) v = 'mreza';
+  if (MAP) { try { MAP.remove(); } catch (e) {} MAP = null; mapMarkers = []; }
+  S.view = v; closeDr();
+  $('title').textContent = VIEWS.find(x => x[0] === v)[1];
+  const nav = VIEWS.map(x => '<button data-v="' + x[0] + '" class="' + (x[0] === v ? 'on' : '') + '">' + x[1] + (x[0] === 'udari' && S.hot.filter(h => h.cls === 'rupa' && h.nd >= 2).length ? '<span class="cnt">' + S.hot.filter(h => h.cls === 'rupa' && h.nd >= 2).length + '</span>' : '') + '</button>').join('');
+  $('nav').innerHTML = nav;
+  $('tabs').innerHTML = VIEWS.map(x => '<button class="pill' + (x[0] === v ? ' on' : '') + '" data-v="' + x[0] + '">' + x[1] + '</button>').join('');
+  $('topact').innerHTML = '<button class="btn" onclick="$(\'file\').click()">Učitaj vožnju</button>';
+  try { if (location.hash.slice(1) !== v) history.replaceState(null, '', (window.EMBED ? '?embed=1' : '') + '#' + v); } catch (e) {}
+  render(false);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b && (b.closest('#nav') || b.closest('#tabs'))) go(b.dataset.v); });
+function render(refresh){
+  if (!S.D.length && ['postavke'].indexOf(S.view) < 0) return empty();
+  const y = $('view').scrollTop; R[S.view](refresh); if (refresh) $('view').scrollTop = y;
+}
+function empty(){
+  $('view').innerHTML = '<div class="card"><div class="empty"><b>Još nema nijedne vožnje</b>Podaci dolaze iz građanske aplikacije: stranica <i>Vožnja</i>, telefon u držaču, i mjerenje se šalje samo po završetku.<br>' +
+    'Komunalna i inspekcijska vozila koja ionako obilaze grad mogu mjeriti usput.<br><br>Ako imaš fajl vožnje (GeoJSON ili CSV iz aplikacije), učitaj ga.<br><br><button class="btn pri" onclick="$(\'file\').click()">Učitaj vožnju</button></div></div>';
+}
+
+/* ── zajednički dijelovi ── */
+const NOTE = '<div class="note warn"><b>NAPOMENA</b><span>Tačnost mjerenja još nije potvrđena referentnim uređajem. Ocjena služi za poređenje dionica i redoslijed pregleda, ne kao geodetski podatak.</span></div>';
+function qCell(q){ const b = band(q); return '<span class="q" style="color:' + b.c + '">' + q + '</span><div class="qbar"><i style="width:' + q + '%;background:' + b.c + '"></i></div>'; }
+function trendTxt(c){ if (c.slope == null) return '<span class="mut">—</span>';
+  const s = c.slope; if (Math.abs(s) < 0.5) return '<span class="mut">stabilno</span>';
+  return s < 0 ? '<span style="color:var(--red)">' + s.toFixed(1).replace('.', ',') + '/mj</span>' : '<span style="color:var(--green-t)">+' + s.toFixed(1).replace('.', ',') + '/mj</span>'; }
+function initMap(el, cb){
+  try {
+    const ds = S.dion.length ? S.dion : [];
+    const c = ds.length ? { lat: ds.reduce((a, x) => a + x.lat, 0) / ds.length, lng: ds.reduce((a, x) => a + x.lng, 0) / ds.length } : {};
+    MAP = PINIT_MAPS.init(el, Object.assign({ dark: true, freeRoam: true, zoom: 13 }, c));
+    if (!MAP) throw 0;
+    let done = false; MAP.on('load', () => { if (!done) { done = true; cb(true); } }); MAP.on('style.load', () => { if (done) cb(false); });
+  } catch (e) { const m = $(el); if (m) m.innerHTML = '<div class="mapfail">Karta se nije učitala. Spisak dionica je ispod.</div>'; }
+}
+function fit(pts){ if (!MAP || !pts.length) return; const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  try { MAP.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 60, maxZoom: 16, duration: 0 }); } catch (e) {} }
+function drawDion(list, first){
+  if (!MAP || !MAP.isStyleLoaded()) { if (MAP) MAP.once('idle', () => drawDion(list, first)); return; }
+  const fc = { type: 'FeatureCollection', features: list.map((c, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [c.lng, c.lat] }, properties: { i, c: band(c.q).c } })) };
+  if (MAP.getSource('d')) MAP.getSource('d').setData(fc); else MAP.addSource('d', { type: 'geojson', data: fc });
+  if (!MAP.getLayer('d')) {
+    MAP.addLayer({ id: 'd', type: 'circle', source: 'd', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 9], 'circle-color': ['get', 'c'], 'circle-stroke-color': '#161a18', 'circle-stroke-width': 1 } });
+    MAP.on('click', 'd', e => { const f = e.features && e.features[0]; if (f) openDion(list[f.properties.i]); });
+    MAP.on('mouseenter', 'd', () => MAP.getCanvas().style.cursor = 'pointer'); MAP.on('mouseleave', 'd', () => MAP.getCanvas().style.cursor = '');
+  }
+  if (first) fit(list.map(c => [c.lng, c.lat]));
+}
+const LEG = () => '<div class="legend"><b>GLATKOĆA</b><span><i style="background:#4cc26a"></i>dobra</span><span><i style="background:#e0a93b"></i>osrednja</span><span><i style="background:#e8883c"></i>slaba</span><span><i style="background:#f0574b"></i>ispod praga (' + DP().prag + ')</span></div>';
+
+/* ════════════════════════════════════════════════════════════════════
+   1. STANJE MREŽE
+   ════════════════════════════════════════════════════════════════════ */
+R.mreza = function(refresh){
+  const D = S.dion, p = DP().prag;
+  const avg = D.length ? Math.round(D.reduce((a, c) => a + c.q, 0) / D.length) : null;
+  const km = S.D.reduce((a, d) => a + ((d.drive && d.drive.km) || d.pathKm || 0), 0);
+  const below = D.filter(c => c.q < p);
+  const last = Math.max(0, ...S.D.map(d => d.ts));
+  const B = ['dobra', 'osrednja', 'slaba', 'ispod'].map(k => ({ k, n: D.filter(c => band(c.q).k === k).length, c: ({ dobra: '#4cc26a', osrednja: '#e0a93b', slaba: '#e8883c', ispod: '#f0574b' })[k] }));
+  const worst = D.slice().sort((a, b) => a.q - b.q).slice(0, 8);
+  if (refresh && MAP) { drawDion(D, false); }
+  $('view').innerHTML = '<div class="stack">' + NOTE +
+    '<div class="grid g4"><div class="card kpi"><span>Prosječna glatkoća</span><b>' + (avg == null ? '—' : avg + '/100') + '</b><em>' + D.length + ' dionica od ~100 m</em></div>' +
+    '<div class="card kpi"><span>Izmjereno</span><b>' + fmt(km, 1) + ' km</b><em>' + S.D.length + ' vožnji</em></div>' +
+    '<div class="card kpi"><span>Dionica ispod praga</span><b' + (below.length ? ' style="color:var(--red)"' : '') + '>' + below.length + '</b><em>glatkoća ispod ' + p + '</em></div>' +
+    '<div class="card kpi"><span>Posljednje mjerenje</span><b>' + kada(last) + '</b><em>' + (last ? dateS(last) : '') + '</em></div></div>' +
+    '<div class="card"><div class="card-b" style="padding-bottom:10px"><div style="font-size:13px;color:var(--tx3)">Stanje mreže po udjelu dionica</div><div class="bands">' +
+      B.map(b => '<i style="width:' + (D.length ? b.n / D.length * 100 : 0) + '%;background:' + b.c + '"></i>').join('') + '</div><div class="bl">' +
+      B.map(b => '<span style="--c:' + b.c + '">' + ({ dobra: 'dobra', osrednja: 'osrednja', slaba: 'slaba', ispod: 'ispod praga' })[b.k] + ' · ' + b.n + (D.length ? ' (' + Math.round(b.n / D.length * 100) + ' %)' : '') + '</span>').join('') + '</div></div></div>' +
+    '<div class="grid g21"><div class="mapwrap" style="height:520px"><div class="ml" id="nmap"></div>' + LEG() + '</div>' +
+    '<div><div style="display:flex;align-items:baseline;margin-bottom:10px"><h3 style="font-size:15px;font-weight:600;flex:1">Dionice po ocjeni glatkoće</h3><button class="btn sm" onclick="go(\'dionice\')">Sve dionice</button></div>' +
+    '<div class="dh"><span>DIONICA</span><span style="width:70px;text-align:right">GLATKOĆA</span><span style="width:48px;text-align:right">IRI</span></div>' +
+    '<div class="stack" style="gap:10px">' + worst.map((c, i) => '<button class="dn" data-w="' + i + '"><div class="r"><b>' + esc(c.name) + '</b><span class="qv" style="color:' + band(c.q).c + '">' + c.q + '</span><span class="i">' + String(c.iri).replace('.', ',') + '</span></div>' +
+      '<div class="bb"><i style="width:' + c.q + '%;background:' + band(c.q).c + '"></i></div></button>').join('') + '</div>' +
+    '<p style="font-size:11.5px;color:var(--tx3);margin-top:12px;line-height:1.5">Procijenjeni indeks neravnosti (IRI) izveden iz mjerenja telefona u vozilu. Vrijednosti nisu kalibrisane referentnim uređajem.</p></div></div></div>';
+  document.querySelectorAll('[data-w]').forEach(b => b.onclick = () => openDion(worst[+b.dataset.w]));
+  initMap('nmap', f => drawDion(D, f));
+  nameQueue(worst);
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   2. DIONICE — sve, sortirano i pretraživo
+   ════════════════════════════════════════════════════════════════════ */
+R.dionice = function(){
+  const q = S.q.toLowerCase();
+  const L = S.dion.filter(c => !q || c.name.toLowerCase().indexOf(q) >= 0);
+  const k = S.sort.k, d = S.sort.d;
+  L.sort((a, b) => { const va = k === 'name' ? a.name : k === 'slope' ? (a.slope == null ? 99 : a.slope) : a[k], vb = k === 'name' ? b.name : k === 'slope' ? (b.slope == null ? 99 : b.slope) : b[k];
+    return (va > vb ? 1 : va < vb ? -1 : 0) * d; });
+  const th = (key, t, r) => '<th data-s="' + key + '"' + (r ? ' class="r"' : '') + '>' + t + (S.sort.k === key ? (S.sort.d > 0 ? ' ↑' : ' ↓') : '') + '</th>';
+  $('topact').innerHTML = '<input class="inp" id="q" placeholder="Traži ulicu" value="' + esc(S.q) + '" style="width:220px"><button class="btn" onclick="exportDion()">Preuzmi (CSV)</button><button class="btn" onclick="$(\'file\').click()">Učitaj vožnju</button>';
+  $('q').oninput = e => { S.q = e.target.value; clearTimeout(window._qt); window._qt = setTimeout(() => { R.dionice(); const n = $('q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }, 200); };
+  $('view').innerHTML = '<div class="card"><div class="tblwrap"><table class="tbl"><thead><tr>' + th('name', 'Dionica') + th('q', 'Glatkoća') + th('iri', 'IRI (m/km)', 1) + th('np', 'Prolaza', 1) +
+    '<th>Pouzdanost</th>' + th('slope', 'Promjena') + th('lastTs', 'Posljednje mjerenje') + '</tr></thead><tbody>' +
+    (L.length ? L.slice(0, 500).map((c, i) => '<tr data-i="' + i + '"><td>' + esc(c.name) + '</td><td>' + qCell(c.q) + '</td><td class="r">' + String(c.iri).replace('.', ',') + '</td><td class="r">' + c.np + '</td><td><span class="chip' + (c.rel === 'visoka' ? ' green' : '') + '">' + c.rel + '</span></td><td>' + trendTxt(c) + '</td><td class="mut">' + kada(c.lastTs) + '</td></tr>').join('')
+      : '<tr><td colspan="7"><div class="empty">Nijedna dionica ne odgovara pretrazi.</div></td></tr>') + '</tbody></table></div></div>' +
+    '<p style="color:var(--tx3);font-size:12.5px;margin-top:10px;line-height:1.55">Dionica je polje od oko 100 m. Pouzdanost raste s brojem prolaza: jedan prolaz je jedna vožnja, jedan telefon. Promjena je nagib kroz sve prolaze, računa se kad su bar dva prolaza razmaknuta 14 dana.</p>';
+  document.querySelectorAll('th[data-s]').forEach(t => t.onclick = () => { const kk = t.dataset.s; S.sort = { k: kk, d: S.sort.k === kk ? -S.sort.d : 1 }; R.dionice(); });
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => openDion(L[+tr.dataset.i]));
+  nameQueue(L.slice(0, 40));
+};
+function exportDion(){
+  csv('dionice.csv', [['Dionica', 'Glatkoća', 'IRI m/km', 'Prolaza', 'Pouzdanost', 'Promjena po mjesecu', 'Posljednje mjerenje', 'GPS']].concat(
+    S.dion.slice().sort((a, b) => a.q - b.q).map(c => [c.name, c.q, c.iri, c.np, c.rel, c.slope == null ? '' : c.slope.toFixed(1), dateS(c.lastTs), c.lat.toFixed(5) + ' ' + c.lng.toFixed(5)])));
+}
+function csv(name, rows){
+  const t = '\ufeff' + rows.map(r => r.map(v => { v = v == null ? '' : String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(';')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([t], { type: 'text/csv;charset=utf-8' })); a.download = name; a.click(); toast('Preuzeto: ' + name);
+}
+
+/* ── Detalj dionice: istorija prolaza i radnje ── */
+let dChart = null;
+function openDion(c){
+  if (!c) return; S.sel = c;
+  const b = band(c.q), H = S.hot.filter(h => Math.abs(h.lat - c.lat) < CELL_LAT && Math.abs(h.lng - c.lng) < CELL_LNG);
+  $('drawer').innerHTML = '<div class="dr-h"><div class="t"><h2>' + esc(c.name) + '</h2><p><span style="color:' + b.c + ';font-weight:600">' + b.n + '</span> · ' + c.np + ' ' + (c.np === 1 ? 'prolaz' : 'prolaza') + ' · pouzdanost ' + c.rel + '</p></div>' +
+    '<button class="x" onclick="closeDr()" aria-label="Zatvori"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg></button></div>' +
+    '<div class="dr-b"><div class="grid g3" style="margin-bottom:18px"><div class="card kpi"><span>Glatkoća</span><b style="color:' + b.c + '">' + c.q + '</b></div><div class="card kpi"><span>IRI</span><b>' + String(c.iri).replace('.', ',') + '</b></div>' +
+    '<div class="card kpi"><span>Promjena</span><b style="font-size:20px">' + trendTxt(c) + '</b></div></div>' +
+    '<div class="sec"><h4>Glatkoća kroz vrijeme</h4><div class="chartbox sm"><canvas id="dc"></canvas></div>' + (c.np < 2 ? '<p style="font-size:12.5px;color:var(--tx3);margin-top:8px">Jedan prolaz — trend se vidi od drugog mjerenja.</p>' : '') + '</div>' +
+    '<div class="sec"><h4>Prolazi</h4>' + c.passes.slice().reverse().map(p => '<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px"><span style="width:100px;color:var(--tx3)">' + dateS(p.ts) + '</span><span style="flex:1">' + esc(p.veh) + '</span><span style="color:' + band(Math.round(p.q)).c + ';font-weight:600">' + Math.round(p.q) + '</span></div>').join('') + '</div>' +
+    (H.length ? '<div class="sec"><h4>Udari na dionici</h4>' + H.map(h => '<div style="font-size:13.5px;padding:6px 0">' + KLASA_N[h.cls] + ' · ' + h.n + '× iz ' + h.nd + ' ' + (h.nd === 1 ? 'vožnje' : 'vožnji') + '</div>').join('') + '</div>' : '') +
+    '<div class="sec"><h4>Lokacija</h4><div style="font-size:13.5px;color:var(--tx2)">' + c.lat.toFixed(5) + ', ' + c.lng.toFixed(5) + '</div></div></div>' +
+    '<div class="dr-f"><button class="btn pri" onclick="toDispatch(S.sel.lat,S.sel.lng,S.sel.name,S.sel.q)">Otvori nalog za pregled</button><button class="btn" onclick="showOnMap(S.sel)">Prikaži na karti</button></div>';
+  $('drawer').classList.add('on');
+  if (dChart) { try { dChart.destroy(); } catch (e) {} }
+  if (!window.__chartMissing) dChart = new Chart($('dc'), { type: 'line', data: { labels: c.passes.map(p => dateS(p.ts)), datasets: [
+      { data: c.passes.map(p => +p.q.toFixed(1)), borderColor: '#eaefec', backgroundColor: '#eaefec', pointRadius: 3, tension: .2 },
+      { data: c.passes.map(() => DP().prag), borderColor: 'rgba(240,87,75,.6)', borderDash: [5, 4], pointRadius: 0 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 }, x: { grid: { display: false } } } } });
+}
+function closeDr(){ $('drawer').classList.remove('on'); S.sel = null; }
+function showOnMap(c){ go('mreza'); setTimeout(() => { if (MAP) MAP.flyTo({ center: [c.lng, c.lat], zoom: 17 }); openDion(c); }, 600); }
+
+/* Nalog za pregled ide u platformu kao prijava „Rupa / oštećenje" s
+   izmjerenom vrijednošću — dispečer ga dodjeljuje kao i svaki drugi. */
+async function toDispatch(lat, lng, name, q){
+  let ime = 'Dispečer'; try { ime = (JSON.parse(localStorage.getItem('pinit_me')) || {}).name || ime; } catch (e) {}
+  try { const j = await api('/api/reports', { method: 'POST', body: { cat: 'putevi', lat, lng, ts: Date.now(), source: 'drive', name: 'PINIT Drive', byName: ime,
+      note: 'PINIT Drive: ' + name + (q != null ? ' · glatkoća ' + q + '/100, procijenjeni IRI ' + iriOf(q) + ' m/km' : '') + '. Potreban pregled na terenu.' } });
+    toast('Otvoren nalog N-' + j.no + ' u platformi (Zadaci).'); }
+  catch (e) { toast(e.message, 'err'); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   3. PROPADANJE — ista dionica kroz vrijeme (PRD 13.4)
+   ════════════════════════════════════════════════════════════════════ */
+R.propadanje = function(){
+  const T = S.dion.filter(c => c.slope != null);
+  const drop = T.filter(c => c.slope <= -0.5).sort((a, b) => a.slope - b.slope);
+  /* Mjesečni prosjek mreže: svaki segment svake vožnje u tom mjesecu. */
+  const M = {};
+  S.D.forEach(d => { const dt = new Date(d.ts), k = dt.getFullYear() * 12 + dt.getMonth();
+    ((d.drive && d.drive.segments) || []).filter(usable).forEach(s => { (M[k] = M[k] || []).push(qOf(s)); }); });
+  const mk = Object.keys(M).map(Number).sort((a, b) => a - b);
+  const MN = ['jan','feb','mar','apr','maj','jun','jul','avg','sep','okt','nov','dec'];
+  /* Kad pada ispod praga: linearna projekcija od sadašnje vrijednosti. */
+  const eta = c => c.q < DP().prag ? 'već ispod' : c.slope < 0 ? Math.max(1, Math.round((c.q - DP().prag) / -c.slope)) + ' mj.' : '—';
+  $('view').innerHTML = '<div class="stack"><div class="grid g3"><div class="card kpi"><span>Dionica s trendom</span><b>' + T.length + '</b><em>bar 2 prolaza razmaknuta 14 dana</em></div>' +
+    '<div class="card kpi"><span>Propadaju</span><b' + (drop.length ? ' style="color:var(--red)"' : '') + '>' + drop.length + '</b><em>gube više od 0,5 boda mjesečno</em></div>' +
+    '<div class="card kpi"><span>Padaju ispod praga do 6 mj.</span><b>' + drop.filter(c => c.q >= DP().prag && (c.q - DP().prag) / -c.slope <= 6).length + '</b><em>kandidati za preventivni zahvat</em></div></div>' +
+    '<div class="card"><div class="card-h"><h3>Prosječna glatkoća mreže po mjesecu</h3><span class="sub">sva mjerenja u mjesecu</span></div><div class="card-b"><div class="chartbox"><canvas id="pc"></canvas></div></div></div>' +
+    '<div class="card"><div class="card-h"><h3>Dionice koje najbrže propadaju</h3><span class="sub">preventiva je jeftinija od rekonstrukcije</span></div><div class="tblwrap"><table class="tbl"><thead><tr><th>Dionica</th><th>Sada</th><th>Prvo mjerenje</th><th>Promjena</th><th class="r">Prolaza</th><th>Ispod praga za</th></tr></thead><tbody>' +
+    (drop.length ? drop.slice(0, 40).map((c, i) => '<tr data-i="' + i + '"><td>' + esc(c.name) + '</td><td>' + qCell(c.q) + '</td><td class="mut">' + Math.round(c.passes[0].q) + ' · ' + dateS(c.passes[0].ts) + '</td><td>' + trendTxt(c) + '</td><td class="r">' + c.np + '</td><td>' + eta(c) + '</td></tr>').join('')
+      : '<tr><td colspan="6"><div class="empty">' + (T.length ? 'Nijedna dionica ne propada brže od 0,5 boda mjesečno.' : 'Propadanje se vidi kad vozilo prođe istom dionicom bar dva puta u razmaku od 14 dana.') + '</div></td></tr>') +
+    '</tbody></table></div></div></div>';
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => openDion(drop[+tr.dataset.i]));
+  if (!window.__chartMissing) new Chart($('pc'), { type: 'line', data: { labels: mk.map(k => MN[k % 12] + ' ' + String(Math.floor(k / 12)).slice(2)), datasets: [
+    { data: mk.map(k => +(M[k].reduce((a, x) => a + x, 0) / M[k].length).toFixed(1)), borderColor: '#4cc26a', backgroundColor: 'rgba(28,122,53,.15)', fill: true, tension: .25, pointRadius: 3 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { suggestedMin: 30, suggestedMax: 90 }, x: { grid: { display: false } } } } });
+  nameQueue(drop.slice(0, 20));
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   4. UDARI — rupe odvojene od prepreka
+   ════════════════════════════════════════════════════════════════════ */
+R.udari = function(){
+  const H = S.hot, cnt = k => H.filter(h => h.cls === k).length;
+  const holes = H.filter(h => h.cls !== 'prepreka');
+  $('view').innerHTML = '<div class="stack"><div class="grid g4"><div class="card kpi"><span>Rupe</span><b style="color:var(--red)">' + cnt('rupa') + '</b><em>' + H.filter(h => h.cls === 'rupa' && h.nd >= 2).length + ' potvrđeno iz više vožnji</em></div>' +
+    '<div class="card kpi"><span>Poklopci šahta</span><b>' + cnt('sahta') + '</b><em>često propali ili izdignuti</em></div>' +
+    '<div class="card kpi"><span>Prepreke</span><b>' + cnt('prepreka') + '</b><em>ležeći policajci — ne broje se kao oštećenje</em></div>' +
+    '<div class="card kpi"><span>Neodređeno</span><b>' + cnt('neodređeno') + '</b><em>signal nije jasan</em></div></div>' +
+    '<div class="note"><b>KAKO SE RAZLIKUJE</b><span>Kod rupe točak prvo propadne pa naglo skoči, uz kratak signal oko 8–16 Hz. Kod ležećeg policajca točak se prvo podigne pa spusti, a signal je sporiji. Mjesto koje je zabilježilo više vožnji je pouzdanije od jednog udara.</span></div>' +
+    '<div class="grid g21"><div class="mapwrap" style="height:480px"><div class="ml" id="umap"></div><div class="legend"><b>UDAR</b><span><i style="background:#f0574b"></i>rupa</span><span><i style="background:#e0a93b"></i>šaht</span><span><i style="background:#8f9a96"></i>prepreka</span></div></div>' +
+    '<div class="card" style="max-height:480px;overflow-y:auto"><div class="card-h"><h3>Mjesta za pregled</h3><span class="sub">bez prepreka</span></div>' +
+    (holes.length ? holes.slice(0, 40).map((h, i) => '<div style="display:flex;gap:10px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line)"><div style="flex:1"><div style="font-weight:600;font-size:14px">' + KLASA_N[h.cls] + (h.nd >= 2 ? ' <span class="chip red">potvrđeno ' + h.nd + '×</span>' : '') + '</div>' +
+      '<div style="font-size:12.5px;color:var(--tx3)">' + h.lat.toFixed(5) + ', ' + h.lng.toFixed(5) + ' · najjači ' + fmt(h.peak, 1) + ' m/s² · ' + kada(h.lastTs) + '</div></div><button class="btn sm out" data-h="' + i + '">U dispečer</button></div>').join('')
+      : '<div class="empty">Nema zabilježenih udara.</div>') + '</div></div></div>';
+  document.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { const h = holes[+b.dataset.h]; toDispatch(h.lat, h.lng, KLASA_N[h.cls] + ' (' + h.n + ' udara, ' + h.nd + ' vožnji)', null); });
+  initMap('umap', f => {
+    if (!MAP) return;
+    const fc = { type: 'FeatureCollection', features: H.map(h => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [h.lng, h.lat] }, properties: { c: h.cls === 'rupa' ? '#f0574b' : h.cls === 'sahta' ? '#e0a93b' : '#8f9a96', r: 4 + Math.min(8, h.n * 1.5) } })) };
+    if (MAP.getSource('h')) MAP.getSource('h').setData(fc); else MAP.addSource('h', { type: 'geojson', data: fc });
+    if (!MAP.getLayer('h')) MAP.addLayer({ id: 'h', type: 'circle', source: 'h', paint: { 'circle-radius': ['get', 'r'], 'circle-color': ['get', 'c'], 'circle-opacity': .75, 'circle-stroke-color': '#161a18', 'circle-stroke-width': 1 } });
+    if (f) fit(H.map(h => [h.lng, h.lat]));
+  });
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   5. PLAN SANACIJE — prema izmjerenom stanju, ne prema pritužbama
+   Zahvat po stanju: ispod 35 rekonstrukcija, do praga presvlačenje, do
+   praga + 15 krpljenje (preventiva). Cijene po m² unosi institucija.
+   ════════════════════════════════════════════════════════════════════ */
+function zahvat(q){ const p = DP().prag; return q < 35 ? 'rekonstrukcija' : q < p ? 'presvlacenje' : q < p + 15 ? 'krpljenje' : null; }
+const ZAHVAT_N = { rekonstrukcija: 'Rekonstrukcija', presvlacenje: 'Presvlačenje', krpljenje: 'Krpljenje (preventiva)' };
+function plan(budget){
+  const P = DP(), area = 100 * (P.sirinaM || 7);
+  const C = S.dion.map(c => { const z = zahvat(c.q); return z ? { c, z, cost: Math.round(area * (P[z] || 0)) } : null; }).filter(Boolean)
+    .sort((a, b) => a.c.q - b.c.q);
+  let sum = 0; C.forEach(x => { x.in = sum + x.cost <= budget; if (x.in) sum += x.cost; });
+  return { C, sum, area };
+}
+R.plan = function(){
+  const P = DP(), budget = +(S.budget != null ? S.budget : P.budzet) || 0;
+  const pl = plan(budget), inn = pl.C.filter(x => x.in), out = pl.C.filter(x => !x.in);
+  const need = pl.C.reduce((a, x) => a + x.cost, 0);
+  $('topact').innerHTML = '<button class="btn" onclick="exportPlan()">Izvezi plan (CSV)</button>';
+  $('view').innerHTML = '<div class="stack"><div class="card"><div class="card-b" style="display:flex;gap:18px;align-items:end;flex-wrap:wrap"><div class="fld" style="margin:0;width:220px"><label for="bud">Budžet za sanaciju (KM)</label><input id="bud" type="number" min="0" step="1000" value="' + budget + '"></div>' +
+    '<div style="font-size:13.5px;color:var(--tx2);line-height:1.6;flex:1">Redoslijed: najlošija dionica prva. Površina dionice ' + fmt(pl.area) + ' m² (100 m × ' + P.sirinaM + ' m). Cijene po m²: krpljenje ' + P.krpljenje + ', presvlačenje ' + P.presvlacenje + ', rekonstrukcija ' + P.rekonstrukcija + ' KM — mijenjaju se u Postavkama.</div></div></div>' +
+    '<div class="grid g4"><div class="card kpi"><span>Obuhvaćeno budžetom</span><b>' + inn.length + '</b><em>od ' + pl.C.length + ' dionica kojima treba zahvat</em></div>' +
+    '<div class="card kpi"><span>Planirano</span><b>' + fmt(pl.sum) + ' KM</b><em>ostaje ' + fmt(budget - pl.sum) + ' KM</em></div>' +
+    '<div class="card kpi"><span>Potrebno za sve</span><b>' + fmt(need) + ' KM</b><em>nedostaje ' + fmt(Math.max(0, need - budget)) + ' KM</em></div>' +
+    '<div class="card kpi"><span>Rekonstrukcija</span><b style="color:var(--red)">' + pl.C.filter(x => x.z === 'rekonstrukcija').length + '</b><em>glatkoća ispod 35</em></div></div>' +
+    '<div class="card"><div class="card-h"><h3>Plan zahvata</h3><span class="sub">' + inn.length + ' u budžetu · ' + out.length + ' čeka</span></div><div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th>Dionica</th><th>Glatkoća</th><th>Zahvat</th><th class="r">Procjena</th><th>Status</th></tr></thead><tbody>' +
+    (pl.C.length ? pl.C.slice(0, 120).map((x, i) => '<tr data-i="' + i + '"' + (x.in ? '' : ' style="opacity:.55"') + '><td class="mut">' + (i + 1) + '</td><td>' + esc(x.c.name) + '</td><td>' + qCell(x.c.q) + '</td><td>' + ZAHVAT_N[x.z] + '</td><td class="r">' + fmt(x.cost) + ' KM</td><td>' + (x.in ? '<span class="chip green">u budžetu</span>' : '<span class="chip">čeka</span>') + '</td></tr>').join('')
+      : '<tr><td colspan="6"><div class="empty">Nijedna dionica nije ispod praga + 15. Mreža je u dobrom stanju.</div></td></tr>') + '</tbody></table></div></div>' +
+    '<p style="color:var(--tx3);font-size:12.5px;line-height:1.55">Plan je polazna tačka, ne odluka: prije zahvata dionicu treba pregledati na terenu (Otvori nalog za pregled). Procjena troška koristi cijene iz Postavki.</p></div>';
+  /* crtanje poslije gubitka fokusa — inače preglednik uklanja polje usred događaja */
+  $('bud').onchange = e => { S.budget = +e.target.value || 0; setTimeout(R.plan, 0); };
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => openDion(pl.C[+tr.dataset.i].c));
+  nameQueue(pl.C.slice(0, 30).map(x => x.c));
+};
+function exportPlan(){
+  const P = DP(), pl = plan(+(S.budget != null ? S.budget : P.budzet) || 0);
+  csv('plan-sanacije.csv', [['Redoslijed', 'Dionica', 'Glatkoća', 'IRI', 'Zahvat', 'Procjena KM', 'U budžetu', 'GPS']].concat(pl.C.map((x, i) => [i + 1, x.c.name, x.c.q, x.c.iri, ZAHVAT_N[x.z], x.cost, x.in ? 'da' : 'ne', x.c.lat.toFixed(5) + ' ' + x.c.lng.toFixed(5)])));
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   6. VOŽNJE — evidencija i učitavanje fajla
+   ════════════════════════════════════════════════════════════════════ */
+R.voznje = function(){
+  const L = S.D.slice().sort((a, b) => b.ts - a.ts);
+  const byV = {}; S.D.forEach(d => { const v = vehOf(d); byV[v] = byV[v] || { n: 0, km: 0 }; byV[v].n++; byV[v].km += (d.drive && d.drive.km) || d.pathKm || 0; });
+  $('view').innerHTML = '<div class="stack"><div class="card"><div class="card-h"><h3>Doprinos po vozilu</h3></div><div class="card-b">' +
+    Object.keys(byV).sort((a, b) => byV[b].km - byV[a].km).map(v => '<div style="display:grid;grid-template-columns:200px 1fr 120px;gap:12px;align-items:center;padding:7px 0"><span>' + esc(v) + '</span><span class="qbar" style="width:100%;margin:0"><i style="width:' + (byV[v].km / Math.max(...Object.values(byV).map(x => x.km)) * 100) + '%;background:#6f7d78"></i></span><span style="text-align:right;color:var(--tx2)">' + fmt(byV[v].km, 1) + ' km · ' + byV[v].n + '</span></div>').join('') + '</div></div>' +
+    '<div class="card"><div class="tblwrap"><table class="tbl"><thead><tr><th>Datum</th><th>Vozilo</th><th class="r">km</th><th class="r">Segmenata</th><th class="r">Prosj. glatkoća</th><th class="r">Udara</th><th>Napomena</th></tr></thead><tbody>' +
+    L.map((d, i) => { const sg = ((d.drive && d.drive.segments) || []).filter(usable), av = sg.length ? Math.round(sg.reduce((a, s) => a + qOf(s), 0) / sg.length) : null;
+      const fl = (d.flags || []).concat(d.drive && d.drive.gps === false ? ['bez GPS'] : []);
+      return '<tr data-i="' + i + '"><td class="mut">' + dateS(d.ts) + '</td><td>' + esc(vehOf(d)) + '</td><td class="r">' + fmt((d.drive && d.drive.km) || d.pathKm, 1) + '</td><td class="r">' + sg.length + '</td><td class="r">' + (av == null ? '—' : '<span style="color:' + band(av).c + '">' + av + '</span>') + '</td><td class="r">' + (((d.drive && d.drive.bumps) || []).length) + '</td><td>' + fl.map(f => '<span class="chip">' + esc(f) + '</span> ').join('') + '</td></tr>'; }).join('') +
+    '</tbody></table></div></div></div>';
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => showDrive(L[+tr.dataset.i]));
+};
+function showDrive(d){
+  const segs = ((d.drive && d.drive.segments) || []).filter(usable);
+  $('drawer').innerHTML = '<div class="dr-h"><div class="t"><h2>' + esc(vehOf(d)) + '</h2><p>' + dateS(d.ts) + ' · ' + fmt((d.drive && d.drive.km) || d.pathKm, 1) + ' km · ' + segs.length + ' segmenata</p></div><button class="x" onclick="closeDr()">✕</button></div>' +
+    '<div class="dr-b"><div class="mapwrap" style="min-height:320px;height:320px"><div class="ml" id="vmap"></div></div><div class="sec" style="margin-top:16px"><h4>Glatkoća duž vožnje</h4><div class="chartbox sm"><canvas id="vc"></canvas></div></div></div>';
+  $('drawer').classList.add('on');
+  setTimeout(() => {
+    try { const m = PINIT_MAPS.init('vmap', { dark: true, freeRoam: true, zoom: 14, lat: segs[0] ? segs[0].lat : undefined, lng: segs[0] ? segs[0].lng : undefined });
+      if (m) m.on('load', () => { m.addSource('v', { type: 'geojson', data: { type: 'FeatureCollection', features: segs.map(s => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { c: band(Math.round(qOf(s))).c } })) } });
+        m.addLayer({ id: 'v', type: 'circle', source: 'v', paint: { 'circle-radius': 5, 'circle-color': ['get', 'c'] } });
+        if (segs.length) { const xs = segs.map(s => s.lng), ys = segs.map(s => s.lat); m.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 30, duration: 0 }); } }); } catch (e) {}
+    if (!window.__chartMissing) new Chart($('vc'), { type: 'line', data: { labels: segs.map((_, i) => i + 1), datasets: [{ data: segs.map(s => Math.round(qOf(s))), borderColor: '#4cc26a', pointRadius: 0, tension: .2 }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 }, x: { display: false } } } });
+  }, 60);
+}
+/* Učitavanje fajla vožnje (GeoJSON ili CSV koje pravi aplikacija) —
+   upisuje se na server kao i vožnja poslata iz aplikacije. */
+$('file').onchange = async () => {
+  const files = Array.from($('file').files || []); $('file').value = '';
+  let ok = 0, bad = [];
+  for (const f of files) {
+    try { const d = parseDrive(f.name, await f.text()); if (!d) throw new Error('fajl nema mjerenja');
+      await api('/api/drives', { method: 'POST', body: { drive: d, city: (S.P && S.P.institucija && S.P.institucija.grad) || '', name: f.name.replace(/\.(geo)?json$|\.csv$/i, '') } }); ok++; }
+    catch (e) { bad.push(f.name + ': ' + e.message); }
+  }
+  if (ok) { toast('Učitano: ' + ok + (ok === 1 ? ' vožnja' : ' vožnji') + '.'); await load(); }
+  if (bad.length) toast(bad.join(' · '), 'err');
+};
+function parseDrive(name, text){
+  const d = { segments: [], bumps: [], taps: [], km: 0 }, t = text.trim();
+  if (t[0] === '{') {
+    const gj = JSON.parse(t); d.km = (gj.properties && gj.properties.km) || 0;
+    if (gj.properties && gj.properties.gps != null) d.gps = !!gj.properties.gps;
+    (gj.features || []).forEach(ft => { const p = ft.properties || {}, g = ft.geometry, ll = g && g.coordinates ? { lng: g.coordinates[0], lat: g.coordinates[1] } : {};
+      if (p.vrsta === 'segment_100m') d.segments.push({ iri: p.iri_m_km != null ? p.iri_m_km : iriOf(p.glatkoca), q: p.glatkoca, lat: ll.lat, lng: ll.lng, t: p.vrijeme_s || 0 });
+      else if (p.vrsta === 'udar') d.bumps.push({ peak: p.vrh_ms2 || 0, sev: p.jacina || '', lat: ll.lat, lng: ll.lng, t: p.vrijeme_s || 0, cls: p.klasa || null });
+      else if (p.vrsta === 'rucna_oznaka') d.taps.push({ tip: p.tip || '', lat: ll.lat, lng: ll.lng, t: p.vrijeme_s || 0 }); });
+  } else {
+    const lines = t.split(/\r?\n/).filter(Boolean), head = lines[0].split(','), ix = n => head.indexOf(n);
+    for (let i = 1; i < lines.length; i++) { const c = lines[i].split(','), v = c[ix('vrsta')], lat = parseFloat(c[ix('lat')]) || null, lng = parseFloat(c[ix('lng')]) || null, tt = parseFloat(c[ix('vrijeme_s')]) || 0;
+      if (v === 'segment_100m') d.segments.push({ iri: parseFloat(c[ix('iri_m_km')]) || iriOf(+c[ix('vrijednost')]), q: +c[ix('vrijednost')], lat, lng, t: tt });
+      else if (v === 'udar') d.bumps.push({ peak: parseFloat(c[ix('vrijednost')]) || 0, sev: c[ix('tip_ili_jacina')], lat, lng, t: tt, cls: ix('klasa') > -1 ? c[ix('klasa')] || null : null }); }
+  }
+  if (!d.segments.length && !d.bumps.length) return null;
+  if (d.gps == null) d.gps = d.segments.some(s => s.lat) || d.bumps.some(b => b.lat);
+  return d;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MJESEČNI IZVJEŠTAJ — stanje cesta u izabranom mjesecu, iz vožnji tog
+   mjeseca, uz poređenje s prethodnim. Za upravu i planiranje sanacije.
+   ════════════════════════════════════════════════════════════════════ */
+const MJ = ['januar','februar','mart','april','maj','juni','juli','august','septembar','oktobar','novembar','decembar'];
+function mjRange(y, m){ return [new Date(y, m, 1).getTime(), new Date(y, m + 1, 1).getTime()]; }
+function mjDrive(y, m){
+  const [a, b] = mjRange(y, m), pm = new Date(y, m - 1, 1), [pa, pb] = mjRange(pm.getFullYear(), pm.getMonth());
+  const M = S.D.filter(d => d.ts >= a && d.ts < b), PM = S.D.filter(d => d.ts >= pa && d.ts < pb);
+  const avgQ = L => { const q = []; L.forEach(d => ((d.drive && d.drive.segments) || []).filter(usable).forEach(x => q.push(qOf(x)))); return q.length ? Math.round(q.reduce((x, y) => x + y, 0) / q.length) : null; };
+  const prag = DP().prag;
+  /* dionice izmjerene u mjesecu: vrijednost iz posljednjeg prolaza u mjesecu i posljednjeg prije */
+  const mj = S.dion.map(c => { const u = c.passes.filter(p => p.ts >= a && p.ts < b); if (!u.length) return null;
+    const pr = c.passes.filter(p => p.ts < a); return { c, q: Math.round(u[u.length - 1].q), prev: pr.length ? Math.round(pr[pr.length - 1].q) : null }; }).filter(Boolean);
+  const nove = mj.filter(x => x.q < prag && x.prev != null && x.prev >= prag);
+  const byV = {}; M.forEach(d => { const v = vehOf(d); byV[v] = (byV[v] || 0) + ((d.drive && d.drive.km) || d.pathKm || 0); });
+  const rupe = S.hot.filter(h => h.cls === 'rupa' && h.lastTs >= a && h.lastTs < b);
+  return { y, m, n: M.length, km: M.reduce((x, d) => x + ((d.drive && d.drive.km) || d.pathKm || 0), 0), q: avgQ(M), qPrev: avgQ(PM), kmPrev: PM.reduce((x, d) => x + ((d.drive && d.drive.km) || d.pathKm || 0), 0),
+    mj, nove, ispod: mj.filter(x => x.q < prag).length, byV, rupe, worst: mj.slice().sort((x, y) => x.q - y.q).slice(0, 10) };
+}
+R.izvjestaj = function(){
+  const n = new Date();
+  if (S.mjY == null) { const d = new Date(n.getFullYear(), n.getMonth() - 1, 1); S.mjY = d.getFullYear(); S.mjM = d.getMonth(); }
+  const x = mjDrive(S.mjY, S.mjM); S._mj = x;
+  const opts = []; for (let i = 0; i < 13; i++) { const d = new Date(n.getFullYear(), n.getMonth() - i, 1); opts.push([d.getFullYear(), d.getMonth(), i === 0]); }
+  const cmp = (a, b, unit) => a == null || b == null ? '' : '<em>' + (a === b ? 'isto kao prethodni mjesec' : (a > b ? '+' : '−') + fmt(Math.abs(a - b), 1) + (unit || '') + ' naspram prethodnog') + '</em>';
+  $('topact').innerHTML = '<select class="inp" id="mjS">' + opts.map(o => '<option value="' + o[0] + '-' + o[1] + '"' + (o[0] === S.mjY && o[1] === S.mjM ? ' selected' : '') + '>' + MJ[o[1]] + ' ' + o[0] + (o[2] ? ' (u toku)' : '') + '</option>').join('') + '</select>' +
+    '<button class="btn" onclick="mjPrint()">Štampaj / sačuvaj PDF</button><button class="btn pri" onclick="mjMail()">Pošalji upravi</button>';
+  $('mjS').onchange = e => { const v = e.target.value.split('-'); S.mjY = +v[0]; S.mjM = +v[1]; R.izvjestaj(); };
+  $('view').innerHTML = '<div class="stack" id="mjBox">' + (!x.n ? '<div class="card"><div class="empty"><b>Nema vožnji u mjesecu ' + MJ[x.m] + ' ' + x.y + '</b>Izaberi drugi mjesec.</div></div>' :
+    '<div class="grid g4"><div class="card kpi"><span>Izmjereno</span><b>' + fmt(x.km, 1) + ' km</b>' + cmp(+x.km.toFixed(1), +x.kmPrev.toFixed(1), ' km') + '</div>' +
+    '<div class="card kpi"><span>Prosječna glatkoća</span><b>' + (x.q == null ? '—' : x.q + '/100') + '</b>' + cmp(x.q, x.qPrev) + '</div>' +
+    '<div class="card kpi"><span>Izmjerenih dionica</span><b>' + x.mj.length + '</b><em>' + x.ispod + ' ispod praga ' + DP().prag + '</em></div>' +
+    '<div class="card kpi"><span>Pale ispod praga</span><b' + (x.nove.length ? ' style="color:var(--red)"' : '') + '>' + x.nove.length + '</b><em>bile iznad pri prethodnom mjerenju</em></div></div>' +
+    '<div class="grid g2"><div class="card"><div class="card-h"><h3>Najlošije izmjerene dionice</h3></div><div class="tblwrap"><table class="tbl"><thead><tr><th>Dionica</th><th>Glatkoća</th><th class="r">Prethodno</th></tr></thead><tbody>' +
+      x.worst.map((w, i) => '<tr data-i="' + i + '"><td>' + esc(w.c.name) + '</td><td>' + qCell(w.q) + '</td><td class="r mut">' + (w.prev == null ? '—' : w.prev) + '</td></tr>').join('') + '</tbody></table></div></div>' +
+    '<div class="stack"><div class="card"><div class="card-h"><h3>Pale ispod praga u ovom mjesecu</h3></div><div class="card-b">' + (x.nove.length ? x.nove.map(w => '<div style="display:flex;padding:6px 0;border-bottom:1px solid var(--line)"><span style="flex:1">' + esc(w.c.name) + '</span><span class="mut">' + w.prev + ' → </span><b style="color:var(--red);margin-left:4px">' + w.q + '</b></div>').join('') : '<div class="mut">Nijedna dionica nije pala ispod praga.</div>') + '</div></div>' +
+    '<div class="card"><div class="card-h"><h3>Vozila</h3></div><div class="card-b">' + Object.keys(x.byV).sort((a, b) => x.byV[b] - x.byV[a]).map(v => '<div style="display:flex;padding:5px 0"><span style="flex:1">' + esc(v) + '</span><span class="mut">' + fmt(x.byV[v], 1) + ' km</span></div>').join('') +
+    '<div style="margin-top:10px;color:var(--tx2)">Rupa zabilježenih u mjesecu: <b>' + x.rupe.length + '</b></div></div></div></div></div>') + '</div>';
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => openDion(x.worst[+tr.dataset.i].c));
+};
+function mjNaslov(){ return 'PINIT Drive — stanje cesta'; }
+function mjMail(){
+  const x = S._mj, to = ((S.P && S.P.izvjestaj && S.P.izvjestaj.primaoci) || '').replace(/\s+/g, '');
+  const t = mjNaslov() + ' — ' + MJ[x.m] + ' ' + x.y + '\n\nIzmjereno: ' + fmt(x.km, 1) + ' km (' + x.n + ' vožnji)\nProsječna glatkoća: ' + (x.q == null ? '—' : x.q + '/100') + (x.qPrev != null ? ' (prethodni mjesec ' + x.qPrev + ')' : '') +
+    '\nIzmjerenih dionica: ' + x.mj.length + ', ispod praga: ' + x.ispod + '\nPale ispod praga u mjesecu: ' + x.nove.length + (x.nove.length ? '\n' + x.nove.map(w => '  ' + w.c.name + ': ' + w.prev + ' → ' + w.q).join('\n') : '') +
+    '\nRupa zabilježenih: ' + x.rupe.length + '\n\nIzvještaj u PDF-u je u prilogu.';
+  (window.EMBED ? window.top : window).location.href = 'mailto:' + to + '?subject=' + encodeURIComponent(mjNaslov() + ' — ' + MJ[x.m] + ' ' + x.y) + '&body=' + encodeURIComponent(t);
+}
+function mjPrint(){
+  const x = S._mj, w = window.open('', '_blank'); if (!w) return toast('Preglednik je blokirao novi prozor. Dozvoli iskačuće prozore za ovu adresu.', 'err');
+  w.document.write('<!DOCTYPE html><html lang="bs"><head><meta charset="utf-8"><title>' + esc(mjNaslov() + ' — ' + MJ[x.m] + ' ' + x.y) + '</title><style>' + [...document.querySelectorAll('style')].map(s => s.textContent).join('\n') +
+    ':root{--bg:#fff;--panel:#fff;--panel2:#f4f6f5;--line:#dfe6e2;--line2:#cfd8d3;--tx:#111;--tx2:#333;--tx3:#666;--tx4:#888}body{overflow:visible;background:#fff;color:#111;padding:24px}.card{break-inside:avoid}@media print{button{display:none}}</style></head><body>' +
+    '<button onclick="print()">Štampaj / sačuvaj PDF</button><h1 style="font-size:22px;margin:10px 0 2px">' + esc(mjNaslov()) + ' — ' + MJ[x.m] + ' ' + x.y + '</h1><div style="color:#666;margin-bottom:16px">' + esc((S.P && S.P.institucija && S.P.institucija.naziv) || '') + ' · izrađeno ' + dateS(Date.now()) + '</div>' + $('mjBox').outerHTML + '</body></html>');
+  w.document.close();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   7. POSTAVKE — prag i cijene, zajedničke s platformom (dnevnik izmjena)
+   ════════════════════════════════════════════════════════════════════ */
+R.postavke = function(){
+  const P = DP();
+  const f = (id, l, v, h) => '<div class="fld"><label for="' + id + '">' + l + '</label><input id="' + id + '" type="number" min="0" value="' + v + '">' + (h ? '<div class="hint">' + h + '</div>' : '') + '</div>';
+  $('view').innerHTML = '<div class="card" style="max-width:720px"><div class="card-h"><h3>Postavke mjerenja i sanacije</h3></div><div class="card-b">' +
+    '<div class="frow">' + f('sP', 'Prag glatkoće', P.prag, 'Ispod praga dionica ulazi u plan.') + f('sW', 'Širina kolovoza (m)', P.sirinaM, 'Za površinu dionice.') + f('sB', 'Godišnji budžet (KM)', P.budzet) + '</div>' +
+    '<div class="frow">' + f('sK', 'Krpljenje (KM/m²)', P.krpljenje) + f('sPr', 'Presvlačenje (KM/m²)', P.presvlacenje) + f('sR', 'Rekonstrukcija (KM/m²)', P.rekonstrukcija) + '</div>' +
+    '<p style="font-size:13px;color:var(--tx3);margin:4px 0 14px">Izmjena se upisuje u dnevnik postavki platforme s imenom i vremenom.</p>' +
+    '<div style="display:flex;justify-content:flex-end"><button class="btn pri" id="sGo">Sačuvaj</button></div></div></div>';
+  $('sGo').onclick = async () => {
+    const d = { prag: +$('sP').value, sirinaM: +$('sW').value, budzet: +$('sB').value, krpljenje: +$('sK').value, presvlacenje: +$('sPr').value, rekonstrukcija: +$('sR').value };
+    if (!(d.prag > 0 && d.prag < 100)) return toast('Prag mora biti između 1 i 99.', 'err');
+    let ime = 'Dispečer'; try { ime = (JSON.parse(localStorage.getItem('pinit_me')) || {}).name || ime; } catch (e) {}
+    try { S.P = await api('/api/settings', { method: 'POST', body: { drive: d, byName: ime } }); S.budget = null; build(); toast('Sačuvano.'); } catch (e) { toast(e.message, 'err'); }
+  };
+};
+
+/* ── učitavanje ── */
+async function load(){
+  try {
+    /* Postavke nisu obavezne za prikaz: bez njih važe polazni prag i cijene. */
+    const [D, P] = await Promise.all([api('/api/drives'), api('/api/settings').catch(e => { S.warn = e.message; return null; })]);
+    /* Probne vožnje (oznaka „test" s telefona) ne ulaze u stanje mreže. */
+    S.D = (D || []).filter(d => d && d.drive && !(d.flags || []).includes('test')); S.P = P;
+    $('city').textContent = (P && P.institucija && P.institucija.grad) || '';
+    build();
+    go(location.hash.slice(1) || S.view);
+    /* Stara verzija servera: jasno upozorenje umjesto tihog kvara. */
+    fetch('/api/verzija').then(r => r.json()).then(j => { const n = parseInt(String(j.verzija).replace(/\D/g, ''), 10);
+      if ((!isNaN(n) && n < 42) || S.warn) { const b = document.createElement('div');
+        b.style.cssText = 'background:rgba(240,87,75,.12);border-bottom:1px solid rgba(240,87,75,.55);color:#f3b3ad;font-size:13.5px;padding:10px 24px';
+        b.textContent = (!isNaN(n) && n < 42 ? 'Server radi ' + j.verzija + ', a PINIT Drive traži v42 ili noviju — objavi cijeli paket (i server.js). ' : '') + (S.warn || '');
+        const m = document.querySelector('.main'); m.insertBefore(b, m.children[1]); } }).catch(() => {});
+  } catch (e) { $('view').innerHTML = '<div class="empty"><b>Podaci se ne mogu učitati</b>' + esc(e.message) + '</div>'; }
+}
+if (!window.__chartMissing) { Chart.defaults.color = '#8f9a96'; Chart.defaults.borderColor = '#2b3330'; Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDr(); });
+try { $('langBtn').textContent = (window.pinitJezik && pinitJezik() === 'en') ? 'BS' : 'EN'; } catch (e) {}
+load();
+</script>
+</body>
+</html>
