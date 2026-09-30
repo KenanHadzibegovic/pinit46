@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: pinit
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: node server.js
+    envVars:
+      # Lozinka za platformu i komandni centar.
+      # sync: false znaci da je Render trazi od tebe pri prvom deployu
+      # i ne cuva je u ovom fajlu (dakle ne zavrsi na GitHubu).
+      - key: PINIT_ADMIN_PASS
+        sync: false
+      # Baza. Bez njih podaci idu u data.json i BRIŠU se pri svakom deployu.
+      # Vidi SUPABASE.md za korak-po-korak uputstvo.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
